@@ -1,0 +1,4 @@
+.env
+coade-search/
+.idea/
+__pycache__/
