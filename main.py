@@ -101,7 +101,7 @@ async def authorize_google():
         base_scopes=GoogleServiceProvider.SCOPES)
     authorization_url = await oauth_google.get_authorization_url(redirect_uri=GoogleServiceProvider.REDIRECT_URL,
                                                                  state=generate_token(),
-                                                                 extras_params={'prompt': 'select_account',
+                                                                 extras_params={'prompt': 'consent',
                                                                                 'access_type': 'offline'})
     return RedirectResponse(authorization_url)
 
