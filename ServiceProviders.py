@@ -1,5 +1,5 @@
-from requests import Response
-from requests_oauthlib import OAuth2Session
+import httpx
+from httpx_oauth.oauth2 import OAuth2
 import json
 import os
 from dotenv import load_dotenv
@@ -20,11 +20,12 @@ class BaseServiceProvider:
     TOKEN_URL: str
 
     @staticmethod
-    def search(search_term: str, oauth: OAuth2Session, api_url: str, **kwargs) -> list:
+    async def search(search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict, **kwargs) -> list:
         raise NotImplementedError
 
 
 class GoogleServiceProvider(BaseServiceProvider):
+    NAME: str = 'google'
     CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID')
     CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET')
     REDIRECT_URI: str = 'gdrive-authorization-success'
@@ -33,15 +34,16 @@ class GoogleServiceProvider(BaseServiceProvider):
                     'https://www.googleapis.com/auth/drive.readonly']
     AUTH_URL: str = 'https://accounts.google.com/o/oauth2/v2/auth'
     TOKEN_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
+    REFRESH_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
 
     @staticmethod
-    def search(search_term: str, oauth: OAuth2Session, api_url: str, **kwargs) -> list:
+    async def search(search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict, **kwargs) -> list:
 
         # corpora should be not sent if the user does not belong to any enterprise domain.
         gdrive_params = {
             'q': f'fullText contains "{search_term}"'
         }
-        gdrive_response: Response = oauth.get(url=api_url, params=gdrive_params)
+        gdrive_response: httpx.Response = await client.get(url=api_url, params=gdrive_params, headers=headers)
         print("GDrive response is: " + str(gdrive_response.json()))
         gdrive_response_list = gdrive_response.json()['files']
         search_results = []
@@ -54,23 +56,25 @@ class GoogleServiceProvider(BaseServiceProvider):
 
 
 class AtlassianServiceProvider(BaseServiceProvider):
+    NAME: str = 'atlassian'
     CLIENT_ID: str = os.getenv('ATLASSIAN_CLIENT_ID')
     CLIENT_SECRET: str = os.getenv('ATLASSIAN_CLIENT_SECRET')
     REDIRECT_URI = 'atlassian-authorization-success'
     REDIRECT_URL: str = f'{HOST_URL}/{REDIRECT_URI}'
     SCOPES: list = ['read:confluence-content.all', 'read:confluence-content.summary', 'search:confluence',
                     'offline_access']
-    AUTH_URL: str = 'https://auth.atlassian.com/authorize?audience=api.atlassian.com'
+    AUTH_URL: str = 'https://auth.atlassian.com/authorize'
     TOKEN_URL: str = 'https://auth.atlassian.com/oauth/token'
+    REFRESH_URL: str = 'https://auth.atlassian.com/oauth/token'
 
     @staticmethod
-    def search(search_term: str, oauth: OAuth2Session, api_url: str, **kwargs) -> list:
+    async def search(search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict,  **kwargs) -> list:
         query = f'text~{search_term}'
-        confluence_response = oauth.get(
+        confluence_response = await client.get(
             url=f"{api_url}/{kwargs.get('confluence_cloud_id')}/wiki/rest/api/search",
             params={
                 'cql': query
-            })
+            }, headers=headers)
 
         confluence_results: list = confluence_response.json()['results']
 
@@ -86,6 +90,7 @@ class AtlassianServiceProvider(BaseServiceProvider):
 
 
 class SlackServiceProvider(BaseServiceProvider):
+    NAME: str = 'slack'
     CLIENT_ID: str = os.getenv('SLACK_CLIENT_ID')
     CLIENT_SECRET: str = os.getenv('SLACK_CLIENT_SECRET')
     REDIRECT_URI = 'slack-authorization-success'
@@ -94,12 +99,14 @@ class SlackServiceProvider(BaseServiceProvider):
     USER_SCOPES: str = 'search:read'
     AUTH_URL: str = 'https://slack.com/oauth/v2/authorize'
     TOKEN_URL: str = 'https://slack.com/api/oauth.v2.access'
+    REFRESH_URL: str = 'https://slack.com/api/oauth.v2.access'
 
     @staticmethod
-    def search(search_term: str, oauth: OAuth2Session, api_url: str, **kwargs) -> list:
-        slack_response = oauth.get(url=f"{api_url}", params={
+    async def search(search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict, **kwargs) -> list:
+        slack_response = await client.get(url=f"{api_url}", params={
             'query': search_term
-        })
+        }, headers=headers)
+        print("slack response is: " + str(slack_response.json()))
         slack_results: list = slack_response.json()['messages']['matches']
         search_results = []
         for result in slack_results:
@@ -111,11 +118,7 @@ class SlackServiceProvider(BaseServiceProvider):
         return search_results
 
     @staticmethod
-    def fix_access_token(response: Response):
-        params = json.loads(response.text)
+    def fix_access_token(params: dict) -> dict:
         access_token = params.get('authed_user')
         access_token['token_type'] = 'Bearer'
-        response_text = json.dumps(access_token, indent=2).encode('utf-8')
-        new_response = Response()
-        new_response._content = response_text
-        return new_response
+        return access_token

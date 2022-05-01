@@ -23,25 +23,6 @@ oauth_slack: OAuth2Session = None
 SLACK_ACCESS_TOKEN: str
 SLACK_REFRESH_TOKEN: str
 
-# currently this app is user agnostic. we will have to make it in such a way that user sign into or platform,
-# he will get buttons to authorize all other apps. but they will authorize only for that particular user by default.
-# currently we assume that user is already signed in.
-#
-# Todo: Research how option to refresh token works
-# Todo: Improve 'state' design as mentioned in requests_oauthlib
-# Todo: Research how to save user tokens.
-# Todo: Research way to invalidate token.
-# Todo: Research way to show token status.
-# Todo: Google Docs search add condition check for 'domain' user.
-# Todo: Add Gmail search.
-# Todo: Add Jira search.
-# Todo: Add Github search.
-# Todo: Sort search results according to relevance.
-# Todo: Research how to save client credentials. p0
-# Todo: push to github. p0
-# Todo: async api calls. p0
-# Todo: beautify search results. p0
-
 
 @app.route('/')
 @app.route('/home')
@@ -167,7 +148,7 @@ def atlassian_authorization_success():
 
 
 @app.route('/search', methods=['POST', 'GET'])
-def search():
+async def search():
 
     if request.method == 'GET':
         args = request.args.to_dict()
