@@ -2,6 +2,7 @@ import asyncio
 import uvloop
 import uvicorn
 import httpx
+import redis
 from random import SystemRandom
 from typing import Optional
 from fastapi import FastAPI, Request
@@ -14,22 +15,16 @@ from ServiceProviders import AtlassianServiceProvider, GoogleServiceProvider, Sl
 app = FastAPI()
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 httpxClient = httpx.AsyncClient()
+store = redis.Redis()
 
 CONFLUENCE_API_URL = 'https://api.atlassian.com/ex/confluence'
 oauth_atlassian: Optional[OAuth2] = None
-ATLASSIAN_ACCESS_TOKEN: str
-ATLASSIAN_REFRESH_TOKEN: str
-CONFLUENCE_CLOUD_ID: str
 
 GDRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files'
 oauth_google: Optional[OAuth2] = None
-GOOGLE_ACCESS_TOKEN: str
-GOOGLE_REFRESH_TOKEN: str
 
 SLACK_API_URL = 'https://slack.com/api/search.all'
 oauth_slack: Optional[OAuth2] = None
-SLACK_ACCESS_TOKEN: str
-SLACK_REFRESH_TOKEN: str
 
 
 # currently this app is user agnostic. we will have to make it in such a way that user sign into or platform,
@@ -39,6 +34,7 @@ SLACK_REFRESH_TOKEN: str
 # Todo: Research how option to refresh token works
 # Todo: Improve 'state' design as mentioned in requests_oauthlib
 # Todo: Research how to persist user tokens. p0
+# Todo: Research how to refresh user tokens. p0
 # Todo: Research way to invalidate token.
 # Todo: Research way to show token status.
 # Todo: Add Gmail search.
@@ -47,6 +43,7 @@ SLACK_REFRESH_TOKEN: str
 # Todo: Sort search results according to relevance.
 # Todo: beautify search results. p0
 # Todo: Google Docs search add condition check for 'domain' user. p0
+# Todo: Handle exception in search results.
 
 
 @app.get('/')
@@ -124,46 +121,56 @@ async def authorize_slack():
 
 @app.get(f'/{GoogleServiceProvider.REDIRECT_URI}')
 async def google_authorization_success(code: str):
-    global GOOGLE_ACCESS_TOKEN, GOOGLE_REFRESH_TOKEN
+
     oauth2_token = await oauth_google.get_access_token(code=code, redirect_uri=GoogleServiceProvider.REDIRECT_URL)
 
-    GOOGLE_ACCESS_TOKEN = oauth2_token.get('access_token')
-    GOOGLE_REFRESH_TOKEN = oauth2_token.get('refresh_token')
+    google_access_token = oauth2_token.get('access_token')
+    google_refresh_token = oauth2_token.get('refresh_token')
 
-    print(GOOGLE_REFRESH_TOKEN)
-    print(GOOGLE_ACCESS_TOKEN)
+    store.hset("GOOGLE", "ACCESS", google_access_token)
+    store.hset("GOOGLE", "REFRESH", google_access_token)
+
+    print(google_refresh_token)
+    print(google_access_token)
     return RedirectResponse('/home')
 
 
 @app.get(f'/{SlackServiceProvider.REDIRECT_URI}')
 async def slack_authorization_success(code: str):
-    global SLACK_ACCESS_TOKEN, SLACK_REFRESH_TOKEN
 
     improper_oauth2_token = await oauth_slack.get_access_token(code=code,
                                                                redirect_uri=SlackServiceProvider.REDIRECT_URL)
 
     oauth2_token = SlackServiceProvider.fix_access_token(improper_oauth2_token)
 
-    SLACK_ACCESS_TOKEN = oauth2_token.get('access_token')
-    SLACK_REFRESH_TOKEN = oauth2_token.get('refresh_token')
+    slack_access_token = oauth2_token.get('access_token')
+    slack_refresh_token = oauth2_token.get('refresh_token')
 
-    print(SLACK_REFRESH_TOKEN)
-    print(SLACK_ACCESS_TOKEN)
+    store.hset("SLACK", "ACCESS", slack_access_token)
+    store.hset("SLACK", "REFRESH", slack_refresh_token)
+
+    print(slack_refresh_token)
+    print(slack_access_token)
     return RedirectResponse('/home')
 
 
 @app.get(f'/{AtlassianServiceProvider.REDIRECT_URI}')
 async def atlassian_authorization_success(code: str):
-    global ATLASSIAN_ACCESS_TOKEN, ATLASSIAN_REFRESH_TOKEN, CONFLUENCE_CLOUD_ID
+
     oauth2_token = await oauth_atlassian.get_access_token(code=code, redirect_uri=AtlassianServiceProvider.REDIRECT_URL)
 
-    ATLASSIAN_ACCESS_TOKEN = oauth2_token.get('access_token')
-    ATLASSIAN_REFRESH_TOKEN = oauth2_token.get('refresh_token')
+    atlassian_access_token = oauth2_token.get('access_token')
+    atlassian_refresh_token = oauth2_token.get('refresh_token')
 
     response: httpx.Response = await httpxClient.get(url='https://api.atlassian.com/oauth/token/accessible-resources',
-                                                     headers={'Authorization': f"Bearer {ATLASSIAN_ACCESS_TOKEN}",
+                                                     headers={'Authorization': f"Bearer {atlassian_access_token}",
                                                               'Accept': 'application/json'})
-    CONFLUENCE_CLOUD_ID = response.json()[0]['id']
+    confluence_cloud_id = response.json()[0]['id']
+
+    store.hset("ATLASSIAN", "ACCESS", atlassian_access_token)
+    store.hset("ATLASSIAN", "REFRESH", atlassian_refresh_token)
+    store.hset("ATLASSIAN", "CLOUD_ID", confluence_cloud_id)
+
     return RedirectResponse('/home')
 
 
@@ -194,23 +201,27 @@ async def search_worker(text: str, response_url: str):
     complete_search_result = []
 
     if oauth_slack:
-        headers = {'Authorization': f"Bearer {SLACK_ACCESS_TOKEN}",
+        slack_access_token = store.hget('SLACK', 'ACCESS')
+        headers = {'Authorization': f"Bearer {slack_access_token}",
                    'Accept': 'application/json'}
         slack_search_results = await SlackServiceProvider.search(search_term=text, client=httpxClient,
                                                                  api_url=SLACK_API_URL, headers=headers)
         complete_search_result.append(slack_search_results)
     if oauth_google:
-        headers = {'Authorization': f"Bearer {GOOGLE_ACCESS_TOKEN}",
+        google_access_token = store.hget('GOOGLE', 'ACCESS')
+        headers = {'Authorization': f"Bearer {google_access_token}",
                    'Accept': 'application/json'}
         gdrive_search_results = await GoogleServiceProvider.search(search_term=text, client=httpxClient,
                                                                    api_url=GDRIVE_API_URL, headers=headers)
         complete_search_result.append(gdrive_search_results)
     if oauth_atlassian:
-        headers = {'Authorization': f"Bearer {ATLASSIAN_ACCESS_TOKEN}",
+        atlassian_access_token = store.hget('ATLASSIAN', 'ACCESS')
+        confluence_cloud_id = store.hget('ATLASSIAN', 'CLOUD_ID')
+        headers = {'Authorization': f"Bearer {atlassian_access_token}",
                    'Accept': 'application/json'}
         confluence_search_results = await AtlassianServiceProvider.search(search_term=text, client=httpxClient,
                                                                           api_url=CONFLUENCE_API_URL, headers=headers,
-                                                                          confluence_cloud_id=CONFLUENCE_CLOUD_ID)
+                                                                          confluence_cloud_id=confluence_cloud_id)
         complete_search_result.append(confluence_search_results)
 
     print(f'Complete search results: {str(complete_search_result)}')
