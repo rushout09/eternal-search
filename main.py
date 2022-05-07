@@ -1,18 +1,18 @@
+import asyncio
+import uvloop
+import uvicorn
+import httpx
 from random import SystemRandom
 from typing import Optional
-
-import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from httpx_oauth.oauth2 import OAuth2
-import httpx
 from oauthlib.common import UNICODE_ASCII_CHARACTER_SET
 from starlette.datastructures import ImmutableMultiDict
-
 from ServiceProviders import AtlassianServiceProvider, GoogleServiceProvider, SlackServiceProvider
 
 app = FastAPI()
-
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 httpxClient = httpx.AsyncClient()
 
 CONFLUENCE_API_URL = 'https://api.atlassian.com/ex/confluence'
@@ -38,7 +38,7 @@ SLACK_REFRESH_TOKEN: str
 #
 # Todo: Research how option to refresh token works
 # Todo: Improve 'state' design as mentioned in requests_oauthlib
-# Todo: Research how to save user tokens.
+# Todo: Research how to persist user tokens. p0
 # Todo: Research way to invalidate token.
 # Todo: Research way to show token status.
 # Todo: Add Gmail search.
@@ -47,7 +47,6 @@ SLACK_REFRESH_TOKEN: str
 # Todo: Sort search results according to relevance.
 # Todo: beautify search results. p0
 # Todo: Google Docs search add condition check for 'domain' user. p0
-# Todo: Google get refresh token. p0
 
 
 @app.get('/')
@@ -173,7 +172,25 @@ async def search(request: Request):
     request_form: ImmutableMultiDict = await request.form()
     text = request_form.get("text")
 
-    print(text)
+    response_url = request_form.get('response_url')
+
+    print(f'text = {text}')
+    print(f'response_url = {response_url}')
+
+    asyncio.create_task(search_worker(text=text, response_url=response_url))
+
+    response = {
+        "response_type": "in_channel",
+        "text": "Searching Eternity."
+    }
+
+    return response
+
+
+async def search_worker(text: str, response_url: str):
+
+    print('inside search worker')
+
     complete_search_result = []
 
     if oauth_slack:
@@ -196,7 +213,14 @@ async def search(request: Request):
                                                                           confluence_cloud_id=CONFLUENCE_CLOUD_ID)
         complete_search_result.append(confluence_search_results)
 
-    return str(complete_search_result)
+    print(f'Complete search results: {str(complete_search_result)}')
+
+    response = await httpxClient.post(url=response_url, json={"text": str(complete_search_result),
+                                                              "response_type": "in_channel"})
+
+    print(f'post response status {response.status_code} and content {response.content}')
+
+    return
 
 
 def generate_token(length=30, chars=UNICODE_ASCII_CHARACTER_SET):

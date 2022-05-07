@@ -1,6 +1,4 @@
 import httpx
-from httpx_oauth.oauth2 import OAuth2
-import json
 import os
 from dotenv import load_dotenv
 
@@ -8,6 +6,8 @@ load_dotenv()
 
 # HOST_URL: str = 'https://rushabh.loca.lt'
 HOST_URL = os.getenv('HOST_URL')
+
+timeout = httpx.Timeout(10.0)
 
 
 class BaseServiceProvider:
@@ -43,7 +43,8 @@ class GoogleServiceProvider(BaseServiceProvider):
         gdrive_params = {
             'q': f'fullText contains "{search_term}"'
         }
-        gdrive_response: httpx.Response = await client.get(url=api_url, params=gdrive_params, headers=headers)
+        gdrive_response: httpx.Response = await client.get(url=api_url, params=gdrive_params, headers=headers,
+                                                           timeout=timeout)
         print("GDrive response is: " + str(gdrive_response.json()))
         gdrive_response_list = gdrive_response.json()['files']
         search_results = []
@@ -74,10 +75,13 @@ class AtlassianServiceProvider(BaseServiceProvider):
             url=f"{api_url}/{kwargs.get('confluence_cloud_id')}/wiki/rest/api/search",
             params={
                 'cql': query
-            }, headers=headers)
+            },
+            headers=headers,
+            timeout=timeout)
 
         confluence_results: list = confluence_response.json()['results']
 
+        print("confluence response is: " + str(confluence_results))
         search_results = []
         for result in confluence_results:
             search_results.append({
@@ -103,9 +107,9 @@ class SlackServiceProvider(BaseServiceProvider):
 
     @staticmethod
     async def search(search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict, **kwargs) -> list:
-        slack_response = await client.get(url=f"{api_url}", params={
-            'query': search_term
-        }, headers=headers)
+        slack_response = await client.get(url=f"{api_url}", params={'query': search_term},
+                                          headers=headers,
+                                          timeout=timeout)
         print("slack response is: " + str(slack_response.json()))
         slack_results: list = slack_response.json()['messages']['matches']
         search_results = []
