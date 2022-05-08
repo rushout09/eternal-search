@@ -97,7 +97,7 @@ class BaseServiceProvider:
         why SystemRandom is used instead of the default random.choice method.
         """
         rand = SystemRandom()
-        return ''.join(rand.choice(chars) for x in range(length))
+        return ''.join(rand.choice(chars) for _ in range(length))
 
 
 class GoogleServiceProvider(BaseServiceProvider):
@@ -264,7 +264,8 @@ class SlackServiceProvider(BaseServiceProvider):
             async with httpx.AsyncClient() as client:
 
                 while retry:
-                    response: httpx.Response = await client.get(url=f"{cls.SLACK_API_URL}", params={'query': search_term},
+                    response: httpx.Response = await client.get(url=f"{cls.SLACK_API_URL}",
+                                                                params={'query': search_term},
                                                                 headers=headers,
                                                                 timeout=timeout)
                     print("slack response is: " + str(response.json()))

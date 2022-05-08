@@ -3,12 +3,10 @@ import uvloop
 import uvicorn
 import httpx
 import redis
-from random import SystemRandom
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from oauthlib.common import UNICODE_ASCII_CHARACTER_SET
 from starlette.datastructures import ImmutableMultiDict
-from ServiceProviders import AtlassianServiceProvider, GoogleServiceProvider, SlackServiceProvider, BaseServiceProvider
+from ServiceProviders import AtlassianServiceProvider, GoogleServiceProvider, SlackServiceProvider
 
 app = FastAPI()
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -33,20 +31,14 @@ store = redis.Redis()
 @app.get('/')
 @app.get('/home')
 def home():
-    html_content = """<form action="authorize-atlassian">
-  <button type="submit">Authorize Confluence</button>
-</form>
-<form action="authorize-google">
-  <button type="submit">Authorize Google Drive</button>
-</form>
-<form action="authorize-slack">
-  <button type="submit">Authorize Slack</button>
-</form>
-<a href="https://slack.com/oauth/v2/authorize?client_id=3177588922981.3399496898834&scope=commands&user_scope=search:read"><img alt="Add to Slack" height="40" width="139" src="https://platform.slack-edge.com/img/add_to_slack.png" srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x" /></a>
-<form action="search" method="POST">
-    <input type="text" placeholder="Search.." name="text">
-  <button type="submit">Search</button>
-</form>"""
+    html_content = """<form action="authorize-atlassian"> <button type="submit">Authorize Confluence</button> </form> 
+    <form action="authorize-google"> <button type="submit">Authorize Google Drive</button> </form> <form 
+    action="authorize-slack"> <button type="submit">Authorize Slack</button> </form> <a 
+    href="https://slack.com/oauth/v2/authorize?client_id=3177588922981.3399496898834&scope=commands&user_scope=search
+    :read"><img alt="Add to Slack" height="40" width="139" src="https://platform.slack-edge.com/img/add_to_slack.png" 
+    srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, 
+    https://platform.slack-edge.com/img/add_to_slack@2x.png 2x" /></a> <form action="search" method="POST"> <input 
+    type="text" placeholder="Search.." name="text"> <button type="submit">Search</button> </form> """
     return HTMLResponse(content=html_content, status_code=200)
 
 
@@ -160,19 +152,6 @@ async def search_worker(text: str, response_url: str):
     print(f'post response status {response.status_code} and content {response.content}')
 
     return
-
-
-def generate_token(length=30, chars=UNICODE_ASCII_CHARACTER_SET):
-    """Generates a non-guessable OAuth token
-
-    OAuth (1 and 2) does not specify the format of tokens except that they
-    should be strings of random characters. Tokens should not be guessable
-    and entropy when generating the random characters is important. Which is
-    why SystemRandom is used instead of the default random.choice method.
-    """
-    rand = SystemRandom()
-    return ''.join(rand.choice(chars) for x in range(length))
-
 
 if __name__ == '__main__':
     uvicorn.run(app='main:app', port=9000)
