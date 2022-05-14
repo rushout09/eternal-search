@@ -61,7 +61,8 @@ class BaseServiceProvider:
         scopes = oauth2_token.get('scope')
 
         store.hset(cls.NAME, "ACCESS", cipher.encrypt(access_token.encode("utf-8")))
-        store.hset(cls.NAME, "REFRESH", cipher.encrypt(refresh_token.encode("utf-8")))
+        if refresh_token is not None:
+            store.hset(cls.NAME, "REFRESH", cipher.encrypt(refresh_token.encode("utf-8")))
         store.hset(cls.NAME, "EXPIRES_AT", str(expires_at))
         store.hset(cls.NAME, "SCOPES", scopes)
 
@@ -108,8 +109,7 @@ class GoogleServiceProvider(BaseServiceProvider):
     CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET')
     REDIRECT_URI: str = 'gdrive-authorization-success'
     REDIRECT_URL: str = f'{HOST_URL}/{REDIRECT_URI}'
-    SCOPES: list = ['https://www.googleapis.com/auth/drive.metadata.readonly',
-                    'https://www.googleapis.com/auth/drive.readonly']
+    SCOPES: list = ['https://www.googleapis.com/auth/drive.readonly']
     AUTH_URL: str = 'https://accounts.google.com/o/oauth2/v2/auth'
     TOKEN_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
     REFRESH_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
@@ -128,7 +128,8 @@ class GoogleServiceProvider(BaseServiceProvider):
         # corpora should be not sent if the user does not belong to any enterprise domain.
         gdrive_params = {
             'q': f'fullText contains "{search_term}"',
-            'corpora': 'domain'
+            'corpora': 'user',
+            'fields': 'files(name, webViewLink, id)'
         }
         headers = {'Authorization': f"Bearer {access_token}",
                    'Accept': 'application/json'}
@@ -160,7 +161,8 @@ class GoogleServiceProvider(BaseServiceProvider):
             for result in gdrive_response_list:
                 search_results.append({
                     'title': result.get('name'),
-                    'type': result.get('mimeType')
+                    'link': result.get('webViewLink'),
+                    'id': result.get('id')
                 })
             return search_results
         except ValueError:
@@ -191,7 +193,7 @@ class AtlassianServiceProvider(BaseServiceProvider):
 
     @classmethod
     async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
-        query = f'text~{search_term}'
+        query = f'text~"{search_term}"'
         headers = {'Authorization': f"Bearer {access_token}",
                    'Accept': 'application/json'}
 
@@ -221,10 +223,18 @@ class AtlassianServiceProvider(BaseServiceProvider):
             print("confluence response is: " + str(confluence_results))
             search_results = []
             for result in confluence_results:
+                link = result['content']['_links'].get('self')[:result['content']['_links'].get('self').find('/rest')] \
+                       + result['content']['_links'].get('webui')
+                title = result['content']['title']
+                excerpt = result['excerpt'].replace("@@@hl@@@", "")
+                excerpt = excerpt.replace("@@@endhl@@@", "")
+                print(link)
                 search_results.append({
-                    'excerpt': result['excerpt'],
-                    'title': result['title'],
-                    'link': result['url']
+                    'excerpt': excerpt,
+                    'title': title,
+                    'link': link,
+                    'id': result['content']['id'],
+                    'score': result.get('score', 0)
                 })
                 print(result)
             return search_results
@@ -267,7 +277,7 @@ class SlackServiceProvider(BaseServiceProvider):
 
                 while retry:
                     response: httpx.Response = await client.get(url=f"{cls.SLACK_API_URL}",
-                                                                params={'query': search_term},
+                                                                params={'query': search_term, 'highlight': False},
                                                                 headers=headers,
                                                                 timeout=timeout)
                     print("slack response is: " + str(response.json()))
@@ -282,11 +292,14 @@ class SlackServiceProvider(BaseServiceProvider):
             slack_results: list = response.json()['messages']['matches']
             search_results = []
             for result in slack_results:
-                search_results.append({
-                    'username': result.get('username'),
-                    'text': result.get('text'),
-                    'link': result.get('permalink')
-                })
+                if 'coade search' not in result.get('username'):
+                    search_results.append({
+                        'username': result.get('username'),
+                        'text': result.get('text'),
+                        'link': result.get('permalink'),
+                        'id': result.get('iid'),
+                        'score': result.get('score')
+                    })
             return search_results
 
         except ValueError:

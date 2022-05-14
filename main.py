@@ -19,16 +19,14 @@ store = redis.Redis()
 # currently we assume that user is already signed in.
 
 # Todo: Improve 'state' design as mentioned in requests_oauthlib to improve security.
-# Todo: Research way to invalidate token.
-# Todo: Research way to show token status.
-# Todo: Add Gmail search.
-# Todo: Add Jira search.
-# Todo: Add Github search.
-# Todo: Sort search results according to relevance. p0
-# Todo: beautify search results. p0
+# Todo: Research way to invalidate token and show token status.
+# Todo: Implement user sign in and session management. p1
+# Todo: Add Gmail search. p0
+# Todo: Add Jira search. p0
+# Todo: Add Github search. p0
 # Todo: Add unit tests. p0
-# Todo: Need a larger dataset to query.
-
+# Todo: fix Atlassian excerpt rendering.
+# Todo: limit number of results returned.
 
 
 @app.get('/')
@@ -129,13 +127,13 @@ async def search_worker(text: str, response_url: str):
     slack_access_token = await SlackServiceProvider.get_access_token()
     if slack_access_token:
         slack_search_results = await SlackServiceProvider.search(search_term=text, access_token=slack_access_token)
-        complete_search_result.append(slack_search_results)
+        complete_search_result.extend(slack_search_results)
 
     google_access_token = await GoogleServiceProvider.get_access_token()
     if google_access_token:
 
         gdrive_search_results = await GoogleServiceProvider.search(search_term=text, access_token=google_access_token)
-        complete_search_result.append(gdrive_search_results)
+        complete_search_result.extend(gdrive_search_results)
 
     atlassian_access_token = await AtlassianServiceProvider.get_access_token()
     if atlassian_access_token:
@@ -145,16 +143,39 @@ async def search_worker(text: str, response_url: str):
                                                                           confluence_cloud_id=store.hget("ATLASSIAN",
                                                                                                          "CLOUD_ID")
                                                                           .decode("utf-8"))
-        complete_search_result.append(confluence_search_results)
+        complete_search_result.extend(confluence_search_results)
 
-    print(f'Complete search results: {str(complete_search_result)}')
+    prepared_response = prepare_response(complete_search_result)
+    print(f'Complete search results: {prepared_response}')
 
-    response = await httpxClient.post(url=response_url, json={"text": str(complete_search_result),
-                                                              "response_type": "in_channel"})
+    response = await httpxClient.post(url=response_url, json={"text": prepared_response,
+                                                              "response_type": "in_channel",
+                                                              "type": "mrkdwn"}
+                                      )
 
     print(f'post response status {response.status_code} and content {response.content}')
 
     return
+
+
+def prepare_response(search_results: list):
+    prepared_response = ""
+    for result in search_results:
+        if result.get('title') is not None:
+            prepared_response = prepared_response + f"Title: *{result.get('title')}* \n"
+        if result.get('username') is not None:
+            prepared_response = prepared_response + f"From: *{result.get('username')}* \n"
+        if result.get('text') is not None:
+            prepared_response = prepared_response + f"{result.get('text')} \n"
+        if result.get('excerpt') is not None:
+            prepared_response = prepared_response + f"{result.get('excerpt')} \n"
+        if result.get('link') is not None:
+            prepared_response = prepared_response + f"link: {result.get('link')}"
+
+        prepared_response = prepared_response + "\n\n\n"
+
+    return prepared_response
+
 
 if __name__ == '__main__':
     uvicorn.run(app='main:app', port=9000)
