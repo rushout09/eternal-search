@@ -31,8 +31,8 @@ store = redis.Redis()
 @app.get('/')
 @app.get('/home')
 def home():
-    html_content = """<form action="authorize-atlassian"> <button type="submit">Authorize Confluence</button> </form> 
-    <form action="authorize-google"> <button type="submit">Authorize Google Drive</button> </form> <form 
+    html_content = """<form action="authorize-atlassian"> <button type="submit">Authorize Atlassian</button> </form> 
+    <form action="authorize-google"> <button type="submit">Authorize Google</button> </form> <form 
     action="authorize-slack"> <button type="submit">Authorize Slack</button> </form> <a 
     href="https://slack.com/oauth/v2/authorize?client_id=3177588922981.3399496898834&scope=commands&user_scope=search
     :read"><img alt="Add to Slack" height="40" width="139" src="https://platform.slack-edge.com/img/add_to_slack.png" 
