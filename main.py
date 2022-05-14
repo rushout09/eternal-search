@@ -22,7 +22,6 @@ store = redis.Redis()
 # Todo: Research way to invalidate token and show token status.
 # Todo: Implement user sign in and session management. p1
 # Todo: Add Gmail search. p0
-# Todo: Add Jira search. p0
 # Todo: Add Github search. p0
 # Todo: Add unit tests. p0
 # Todo: fix Atlassian excerpt rendering.
@@ -92,9 +91,11 @@ async def atlassian_authorization_success(code: str):
                                                      headers={'Authorization': f"Bearer {atlassian_access_token}",
                                                               'Accept': 'application/json'})
     atlassian_cloud_id = response.json()[0]['id']
+    atlassian_cloud_url = response.json()[0]['url']
 
     AtlassianServiceProvider.persist_oauth_token(oauth2_token=oauth2_token)
     store.hset("ATLASSIAN", "CLOUD_ID", str(atlassian_cloud_id))
+    store.hset("ATLASSIAN", "CLOUD_URL", str(atlassian_cloud_url))
 
     return RedirectResponse('/home')
 
@@ -140,8 +141,7 @@ async def search_worker(text: str, response_url: str):
 
         confluence_search_results = await AtlassianServiceProvider.search(search_term=text,
                                                                           access_token=atlassian_access_token,
-                                                                          confluence_cloud_id=store.hget("ATLASSIAN",
-                                                                                                         "CLOUD_ID")
+                                                                          cloud_id=store.hget("ATLASSIAN", "CLOUD_ID")
                                                                           .decode("utf-8"))
         complete_search_result.extend(confluence_search_results)
 

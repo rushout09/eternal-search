@@ -33,7 +33,7 @@ class BaseServiceProvider:
     oauth: OAuth2
 
     @classmethod
-    async def search(cls, search_term: str, client: httpx.AsyncClient, api_url: str, headers: dict, **kwargs) -> list:
+    async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
         raise NotImplementedError
 
     @classmethod
@@ -164,7 +164,7 @@ class GoogleServiceProvider(BaseServiceProvider):
                     'link': result.get('webViewLink'),
                     'id': result.get('id')
                 })
-            return search_results
+            return search_results[:5]
         except ValueError:
             print(str(ValueError))
             return []
@@ -176,12 +176,15 @@ class AtlassianServiceProvider(BaseServiceProvider):
     CLIENT_SECRET: str = os.getenv('ATLASSIAN_CLIENT_SECRET')
     REDIRECT_URI = 'atlassian-authorization-success'
     REDIRECT_URL: str = f'{HOST_URL}/{REDIRECT_URI}'
-    SCOPES: list = ['read:confluence-content.all', 'read:confluence-content.summary', 'search:confluence',
-                    'offline_access']
+    SCOPES: list = ['read:content-details:confluence',
+                    'read:issue-details:jira', 'read:audit-log:jira', 'read:avatar:jira',
+                    'read:field-configuration:jira', 'read:issue-meta:jira', 'offline_access']
     AUTH_URL: str = 'https://auth.atlassian.com/authorize'
     TOKEN_URL: str = 'https://auth.atlassian.com/oauth/token'
     REFRESH_URL: str = 'https://auth.atlassian.com/oauth/token'
     CONFLUENCE_API_URL: str = 'https://api.atlassian.com/ex/confluence'
+    JIRA_API_URL: str = 'https://api.atlassian.com/ex/jira'
+
     oauth: OAuth2 = OAuth2(
         name=NAME,
         client_id=CLIENT_ID,
@@ -192,7 +195,7 @@ class AtlassianServiceProvider(BaseServiceProvider):
         base_scopes=SCOPES)
 
     @classmethod
-    async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
+    async def jira_search(cls, search_term: str, access_token: str, **kwargs):
         query = f'text~"{search_term}"'
         headers = {'Authorization': f"Bearer {access_token}",
                    'Accept': 'application/json'}
@@ -204,7 +207,55 @@ class AtlassianServiceProvider(BaseServiceProvider):
 
                 while retry:
                     response: httpx.Response = await client.get(
-                        url=f"{cls.CONFLUENCE_API_URL}/{kwargs.get('confluence_cloud_id')}/wiki/rest/api/search",
+                        url=f"{cls.JIRA_API_URL}/{kwargs.get('cloud_id')}/rest/api/3/search",
+                        params={
+                            'jql': query
+                        },
+                        headers=headers,
+                        timeout=timeout)
+
+                    # Confirm if status code for expired access token is correct.
+                    if response.status_code == 200:
+                        retry = False
+                    elif response.status_code == 403:
+                        await cls.refresh_token()
+                    else:
+                        raise ValueError("Invalid Response")
+
+            jira_results: list = response.json()['issues']
+            print("Jira response is: " + str(jira_results))
+            search_results = []
+            for result in jira_results:
+
+                link = store.hget("ATLASSIAN", "CLOUD_URL").decode("utf-8") + "/browse/" + result['key']
+                title = result['key'] + " " + result['fields']['summary']
+                print(link)
+                search_results.append({
+                    'title': title,
+                    'link': link,
+                    'id': result['id']
+                })
+                print(result)
+            return search_results
+
+        except ValueError:
+            print(str(ValueError))
+            return []
+
+    @classmethod
+    async def confluence_search(cls, search_term: str, access_token: str, **kwargs) -> list:
+        query = f'text~"{search_term}"'
+        headers = {'Authorization': f"Bearer {access_token}",
+                   'Accept': 'application/json'}
+
+        retry = True
+
+        try:
+            async with httpx.AsyncClient() as client:
+
+                while retry:
+                    response: httpx.Response = await client.get(
+                        url=f"{cls.CONFLUENCE_API_URL}/{kwargs.get('cloud_id')}/wiki/rest/api/search",
                         params={
                             'cql': query
                         },
@@ -223,8 +274,7 @@ class AtlassianServiceProvider(BaseServiceProvider):
             print("confluence response is: " + str(confluence_results))
             search_results = []
             for result in confluence_results:
-                link = result['content']['_links'].get('self')[:result['content']['_links'].get('self').find('/rest')] \
-                       + result['content']['_links'].get('webui')
+                link = store.hget("ATLASSIAN", "CLOUD_URL").decode("utf-8") + result['content']['_links'].get('webui')
                 title = result['content']['title']
                 excerpt = result['excerpt'].replace("@@@hl@@@", "")
                 excerpt = excerpt.replace("@@@endhl@@@", "")
@@ -242,6 +292,16 @@ class AtlassianServiceProvider(BaseServiceProvider):
         except ValueError:
             print(str(ValueError))
             return []
+
+    @classmethod
+    async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
+        atlassian_results: list = []
+        jira_results: list = await cls.jira_search(search_term=search_term, access_token=access_token, **kwargs)
+        confluence_results: list = await cls.confluence_search(search_term=search_term,
+                                                               access_token=access_token, **kwargs)
+        atlassian_results.extend(confluence_results[:5])
+        atlassian_results.extend(jira_results[:5])
+        return atlassian_results
 
 
 class SlackServiceProvider(BaseServiceProvider):
@@ -300,7 +360,7 @@ class SlackServiceProvider(BaseServiceProvider):
                         'id': result.get('iid'),
                         'score': result.get('score')
                     })
-            return search_results
+            return search_results[:5]
 
         except ValueError:
             print(str(ValueError))
