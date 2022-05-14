@@ -26,6 +26,9 @@ store = redis.Redis()
 # Todo: Add Github search.
 # Todo: Sort search results according to relevance. p0
 # Todo: beautify search results. p0
+# Todo: Add unit tests. p0
+# Todo: Need a larger dataset to query.
+
 
 
 @app.get('/')

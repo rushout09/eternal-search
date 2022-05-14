@@ -10,10 +10,12 @@ from cryptography.fernet import Fernet
 
 load_dotenv()
 store = redis.Redis()
-cipher = Fernet(Fernet.generate_key())
 
 # HOST_URL: str = 'https://rushabh.loca.lt'
 HOST_URL = os.getenv('HOST_URL')
+
+KEY = os.getenv('KEY')
+cipher = Fernet(KEY.encode("utf-8"))
 
 timeout = httpx.Timeout(10.0)
 
