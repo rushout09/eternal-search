@@ -14,18 +14,18 @@ httpxClient = httpx.AsyncClient()
 store = redis.Redis()
 
 
-# currently this app is user agnostic. we will have to make it in such a way that user sign into or platform,
+# currently, this app is user agnostic. we will have to make it in such a way that user sign into or platform,
 # he will get buttons to authorize all other apps. but they will authorize only for that particular user by default.
-# currently we assume that user is already signed in.
+# currently, we assume that user is already signed in.
 
-# Todo: Improve 'state' design as mentioned in requests_oauthlib to improve security.
-# Todo: Research way to invalidate token and show token status.
-# Todo: Implement user sign in and session management. p1
-# Todo: Add Gmail search. p0
-# Todo: Add Github search. p0
-# Todo: Add unit tests. p0
-# Todo: fix Atlassian excerpt rendering.
-# Todo: limit number of results returned.
+# Todo: Improve 'state' design as mentioned in requests_oauthlib to improve security. p2
+# Todo: Research way to invalidate token and show token status. p2
+# Todo: Possible sources to add: MS Outlook, Teams, onedrive, intercom, CRMs, Github search. p2
+# Todo: Implement user sign in and session management. p0
+# Todo: Add unit tests. p1
+# Todo: Return formatted and relevant search results. p0
+# Todo: figure out how to add the app to slack. p0
+# Todo: handle gmail no response error. p0
 
 
 @app.get('/')

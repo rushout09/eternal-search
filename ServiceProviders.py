@@ -109,11 +109,13 @@ class GoogleServiceProvider(BaseServiceProvider):
     CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET')
     REDIRECT_URI: str = 'gdrive-authorization-success'
     REDIRECT_URL: str = f'{HOST_URL}/{REDIRECT_URI}'
-    SCOPES: list = ['https://www.googleapis.com/auth/drive.readonly']
+    SCOPES: list = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/gmail.readonly']
     AUTH_URL: str = 'https://accounts.google.com/o/oauth2/v2/auth'
     TOKEN_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
     REFRESH_URL: str = 'https://www.googleapis.com/oauth2/v4/token'
     GDRIVE_API_URL: str = 'https://www.googleapis.com/drive/v3/files'
+    GMAIL_API_URL: str = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
+
     oauth: OAuth2 = OAuth2(
         name=NAME,
         client_id=CLIENT_ID,
@@ -124,7 +126,75 @@ class GoogleServiceProvider(BaseServiceProvider):
         base_scopes=SCOPES)
 
     @classmethod
-    async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
+    async def get_mail(cls, message_id: str, access_token: str):
+
+        params = {
+            'format': 'minimal'
+        }
+        headers = {'Authorization': f"Bearer {access_token}",
+                   'Accept': 'application/json'}
+
+        retry = True
+
+        try:
+            async with httpx.AsyncClient() as client:
+                while retry:
+                    response: httpx.Response = await client.get(url=f"{cls.GMAIL_API_URL}/{message_id}",
+                                                                headers=headers,
+                                                                timeout=timeout, params=params)
+                    if response.status_code == 200:
+                        retry = False
+                    elif response.status_code == 401:
+                        await cls.refresh_token()
+                    else:
+                        raise ValueError("Invalid Response")
+            return response.json()['snippet']
+        except ValueError:
+            print(str(ValueError))
+            return ""
+
+    @classmethod
+    async def gmail_search(cls, search_term: str, access_token: str, **kwargs) -> list:
+        gmail_params = {
+            'q': f'{search_term}'
+        }
+
+        headers = {'Authorization': f"Bearer {access_token}",
+                   'Accept': 'application/json'}
+
+        retry = True
+
+        try:
+
+            async with httpx.AsyncClient() as client:
+
+                while retry:
+                    response: httpx.Response = await client.get(url=cls.GMAIL_API_URL, params=gmail_params,
+                                                                headers=headers,
+                                                                timeout=timeout)
+                    if response.status_code == 200:
+                        retry = False
+                    elif response.status_code == 401:
+                        await cls.refresh_token()
+                    else:
+                        raise ValueError("Invalid Response")
+
+            print("GMail response is: " + str(response.json()))
+            gmail_response_list = response.json()['messages'][:5]
+            search_results = []
+            for result in gmail_response_list:
+                mail_result = await cls.get_mail(message_id=result.get('id'), access_token=access_token)
+                search_results.append({
+                    'title': mail_result,
+                    'id': result.get('id')
+                })
+            return search_results
+        except ValueError:
+            print(str(ValueError))
+            return []
+
+    @classmethod
+    async def gdrive_search(cls, search_term: str, access_token: str, **kwargs) -> list:
         # corpora should be not sent if the user does not belong to any enterprise domain.
         gdrive_params = {
             'q': f'fullText contains "{search_term}"',
@@ -168,6 +238,15 @@ class GoogleServiceProvider(BaseServiceProvider):
         except ValueError:
             print(str(ValueError))
             return []
+
+    @classmethod
+    async def search(cls, search_term: str, access_token: str, **kwargs) -> list:
+        google_results: list = []
+        gmail_results: list = await cls.gmail_search(search_term=search_term, access_token=access_token, **kwargs)
+        gdrive_results: list = await cls.gdrive_search(search_term=search_term, access_token=access_token, **kwargs)
+        google_results.extend(gmail_results)
+        google_results.extend(gdrive_results)
+        return google_results
 
 
 class AtlassianServiceProvider(BaseServiceProvider):
